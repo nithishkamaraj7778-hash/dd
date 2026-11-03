@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DD Enterprises | Finance Management System</title>
+  <meta name="description" content="Professional Finance Management Platform for DD Enterprises. Manage borrowers, loans, collections, receipts, and live portfolio metrics.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark">
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Auth Screen (Shown when logged out) -->
+  <div id="auth-screen" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-logo-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="1" x2="12" y2="23"></line>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <div>
+          <h2>DD Enterprises</h2>
+          <p class="brand-sub">Finance Management System</p>
+        </div>
+      </div>
+
+      <div class="auth-box">
+        <div class="auth-header">
+          <span class="auth-badge" id="auth-mode-badge">SECURE ACCESS</span>
+          <h1 id="auth-title">Sign in to your portfolio</h1>
+          <p id="auth-desc">Enter your credentials to manage active loans and collections.</p>
+        </div>
+
+        <form id="auth-form" class="auth-form">
+          <div id="auth-name-group" class="form-group hidden">
+            <label for="auth-fullname">Full Name</label>
+            <input type="text" id="auth-fullname" placeholder="e.g. Ramesh Kumar" autocomplete="name">
+          </div>
+
+          <div class="form-group">
+            <label for="auth-username">Username</label>
+            <input type="text" id="auth-username" placeholder="admin" required autocomplete="username">
+          </div>
+
+          <div class="form-group">
+            <label for="auth-password">Password</label>
+            <div class="password-input-wrap">
+              <input type="password" id="auth-password" placeholder="••••••••" required autocomplete="current-password">
+              <button type="button" id="toggle-password" class="icon-btn-ghost" title="Toggle password visibility">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="auth-error" class="auth-error hidden"></div>
+
+          <button type="submit" id="auth-submit-btn" class="btn btn-primary btn-block">
+            <span>Sign In</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </form>
+
+        <div class="auth-quick-actions">
+          <button type="button" id="quick-demo-btn" class="btn btn-demo btn-block">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            Auto-fill Admin (admin / admin123)
+          </button>
+
+          <div class="auth-toggle-link">
+            <span id="auth-toggle-text">Need to register a new admin?</span>
+            <button type="button" id="auth-toggle-btn" class="link-btn">Create account</button>
+          </div>
+        </div>
+
+        <div class="auth-system-info">
+          <span class="status-dot pulsing" id="auth-status-dot"></span>
+          <span id="auth-server-status">Checking backend connection...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App Shell -->
+  <div id="app-shell" class="app-shell">
+    <!-- Sidebar -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+            <line x1="12" y1="1" x2="12" y2="23"></line>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">DD Enterprises</span>
+          <span class="brand-badge">LENDING & FINANCE</span>
+        </div>
+        <button id="sidebar-close-btn" class="sidebar-close-btn lg-hidden" aria-label="Close sidebar">✕</button>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="sidebar-quick-actions">
+        <button class="btn btn-accent btn-sm btn-block" onclick="openNewLoanModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          New Loan
+        </button>
+        <button class="btn btn-secondary btn-sm btn-block" onclick="openNewPaymentModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          Collect Payment
+        </button>
+      </div>
+
+      <!-- Navigation Links -->
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="customers">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span>Borrowers</span>
+          <span class="nav-count" id="nav-count-customers">0</span>
+        </button>
+        <button class="nav-item" data-tab="accounts">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+          <span>Loan Accounts</span>
+          <span class="nav-count" id="nav-count-accounts">0</span>
+        </button>
+        <button class="nav-item" data-tab="payments">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <span>Collections & Receipts</span>
+        </button>
+        <button class="nav-item" data-tab="calculator">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M8 10h.01"></path><path d="M12 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path></svg>
+          <span>EMI Calculator</span>
+        </button>
+        <button class="nav-item" data-tab="audit">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span>Audit & Activity</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer Status -->
+      <div class="sidebar-footer">
+        <div class="server-status-card">
+          <div class="status-header">
+            <span class="status-dot pulsing" id="sidebar-status-dot"></span>
+            <span class="status-title">Backend Active</span>
+          </div>
+          <p class="status-sub" id="sidebar-db-info">SQLite Database Connected</p>
+          <div class="status-pill">PORT 5001 • LIVE</div>
+        </div>
+
+        <div class="user-profile-badge">
+          <div class="user-avatar" id="user-avatar-initials">AD</div>
+          <div class="user-meta">
+            <strong id="user-display-name">Admin User</strong>
+            <span id="user-display-role">ADMIN</span>
+          </div>
+          <button id="sign-out-btn" class="icon-btn-ghost" title="Sign out">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="app-main-wrapper">
+      <!-- Top Header -->
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <button id="mobile-menu-btn" class="icon-btn lg-hidden" aria-label="Toggle navigation">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div>
+            <h1 class="topbar-title" id="page-title">Executive Overview</h1>
+            <p class="topbar-sub" id="page-subtitle">Real-time lending portfolio position</p>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Live Global Search -->
+          <div class="global-search-container">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="global-search-input" placeholder="Search borrowers, loan #, receipts..." autocomplete="off">
+            <div id="search-dropdown" class="search-dropdown hidden"></div>
+          </div>
+
+          <!-- Quick Refresh Button -->
+          <button id="refresh-data-btn" class="btn btn-secondary btn-icon" title="Refresh portfolio data">
+            <svg id="refresh-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span class="sm-hidden">Sync</span>
+          </button>
+
+          <!-- Add Customer Shortcut -->
+          <button class="btn btn-primary" onclick="openNewCustomerModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+            <span>Add Borrower</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Page Views -->
+      <main class="page-content">
+
+        <!-- ================= TAB 1: DASHBOARD ================= -->
+        <section id="tab-dashboard" class="tab-pane active">
+          <!-- Metric Cards Grid -->
+          <div class="metrics-grid">
+            <div class="metric-card metric-principal">
+              <div class="metric-top">
+                <span class="metric-label">Total Principal Issued</span>
+                <span class="metric-icon-wrap">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                </span>
+              </div>
+              <div class="metric-value" id="stat-principal">₹0</div>
+              <div class="metric-footer">
+                <span class="badge badge-success" id="stat-accounts-count">0 active loans</span>
+                <span class="metric-meta">Disbursed capital</span>
+              </div>
+            </div>
+
+            <div class="metric-card metric-outstanding">
+              <div class="metric-top">
+                <span class="metric-label">Outstanding Balance</span>
+                <span class="metric-icon-wrap">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </span>
+              </div>
+              <div class="metric-value" id="stat-outstanding">₹0</div>
+              <div class="metric-footer">
+                <span class="badge badge-warning">Principal + Interest</span>
+                <span class="metric-meta">To be recovered</span>
+              </div>
+            </div>
+
+            <div class="metric-card metric-recovered">
+              <div class="metric-top">
+                <span class="metric-label">Recovered Collections</span>
+                <span class="metric-icon-wrap">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </span>
+              </div>
+              <div class="metric-value" id="stat-recovered">₹0</div>
+              <div class="metric-footer">
+                <span class="badge badge-accent" id="stat-recovery-rate">0% repaid</span>
+                <span class="metric-meta" id="stat-payments-count">0 receipts</span>
+              </div>
+            </div>
+
+            <div class="metric-card metric-borrowers">
+              <div class="metric-top">
+                <span class="metric-label">Active Borrowers</span>
+                <span class="metric-icon-wrap">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                </span>
+              </div>
+              <div class="metric-value" id="stat-customers">0</div>
+              <div class="metric-footer">
+                <span class="badge badge-teal">KYC Verified</span>
+                <span class="metric-meta">Profiles in registry</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="dashboard-charts-grid">
+            <!-- Monthly Trends Bar Chart -->
+            <div class="panel-card chart-panel">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Monthly Recovery Trends</h3>
+                  <p class="panel-subtitle">Collections recorded across last 6 months</p>
+                </div>
+                <div class="panel-badge">Live Aggregation</div>
+              </div>
+              <div class="chart-container">
+                <canvas id="monthly-bar-chart" height="210"></canvas>
+              </div>
+            </div>
+
+            <!-- Payment Methods Doughnut Chart -->
+            <div class="panel-card chart-panel">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Payment Mode Distribution</h3>
+                  <p class="panel-subtitle">UPI, Cash & Bank Transfers</p>
+                </div>
+                <div class="panel-badge">Method Split</div>
+              </div>
+              <div class="chart-container donut-wrapper">
+                <canvas id="method-donut-chart" height="210"></canvas>
+                <div class="donut-legend" id="method-legend"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Collections & Quick Tools -->
+          <div class="dashboard-bottom-grid">
+            <!-- Recent Collections Table -->
+            <div class="panel-card flex-2">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Recent Collections</h3>
+                  <p class="panel-subtitle">Latest installments paid by borrowers</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" onclick="switchTab('payments')">View All Collections →</button>
+              </div>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Receipt #</th>
+                      <th>Borrower</th>
+                      <th>Loan Account</th>
+                      <th>Date</th>
+                      <th>Method</th>
+                      <th class="text-right">Amount</th>
+                      <th class="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recent-payments-table-body">
+                    <tr><td colspan="7" class="table-empty">Loading collections...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Live Operations Ticker & Quick Calculator Link -->
+            <div class="panel-card flex-1">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Live Audit Stream</h3>
+                  <p class="panel-subtitle">Recent portfolio events</p>
+                </div>
+                <span class="status-dot pulsing"></span>
+              </div>
+              <div class="activity-feed" id="dashboard-activity-feed">
+                <div class="feed-empty">No activity recorded yet.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= TAB 2: CUSTOMERS ================= -->
+        <section id="tab-customers" class="tab-pane">
+          <div class="panel-card">
+            <div class="panel-toolbar">
+              <div class="toolbar-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="customers-search-input" placeholder="Search by name, phone, Aadhaar/PAN, customer ID...">
+              </div>
+              <div class="toolbar-actions">
+                <button class="btn btn-secondary btn-sm" onclick="exportData('customers')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Export CSV
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="openNewCustomerModal()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Add Borrower
+                </button>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Borrower ID</th>
+                    <th>Full Name</th>
+                    <th>Contact Phone</th>
+                    <th>Identity Proof</th>
+                    <th>Address</th>
+                    <th>Accounts</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="customers-table-body">
+                  <tr><td colspan="8" class="table-empty">Loading borrowers...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= TAB 3: ACCOUNTS / LOANS ================= -->
+        <section id="tab-accounts" class="tab-pane">
+          <div class="panel-card">
+            <div class="panel-toolbar">
+              <div class="toolbar-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="accounts-search-input" placeholder="Search by loan #, borrower name, phone...">
+              </div>
+              <div class="toolbar-filters">
+                <button class="filter-chip active" data-filter="ALL" onclick="filterAccountsByStatus('ALL')">All Loans</button>
+                <button class="filter-chip" data-filter="ACTIVE" onclick="filterAccountsByStatus('ACTIVE')">Active</button>
+                <button class="filter-chip" data-filter="COMPLETED" onclick="filterAccountsByStatus('COMPLETED')">Completed</button>
+              </div>
+              <div class="toolbar-actions">
+                <button class="btn btn-secondary btn-sm" onclick="exportData('accounts')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Export CSV
+                </button>
+                <button class="btn btn-accent btn-sm" onclick="openNewLoanModal()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Disburse Loan
+                </button>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Loan Account #</th>
+                    <th>Borrower</th>
+                    <th>Principal</th>
+                    <th>Rate & Term</th>
+                    <th>Installment</th>
+                    <th>Total Payable</th>
+                    <th>Balance Due</th>
+                    <th>Next Due Date</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="accounts-table-body">
+                  <tr><td colspan="10" class="table-empty">Loading loan accounts...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= TAB 4: PAYMENTS & COLLECTIONS ================= -->
+        <section id="tab-payments" class="tab-pane">
+          <div class="panel-card">
+            <div class="panel-toolbar">
+              <div class="toolbar-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="payments-search-input" placeholder="Search by receipt #, borrower, account, UTR...">
+              </div>
+              <div class="toolbar-actions">
+                <button class="btn btn-secondary btn-sm" onclick="exportData('payments')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Export CSV
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="openNewPaymentModal()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  Collect Payment
+                </button>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Receipt #</th>
+                    <th>Borrower</th>
+                    <th>Loan Account</th>
+                    <th>Payment Date</th>
+                    <th>Method</th>
+                    <th>Ref / UTR</th>
+                    <th class="text-right">Amount Paid</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="payments-table-body">
+                  <tr><td colspan="8" class="table-empty">Loading payment ledger...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= TAB 5: EMI CALCULATOR ================= -->
+        <section id="tab-calculator" class="tab-pane">
+          <div class="calculator-grid">
+            <!-- Controls Panel -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Loan & EMI Simulator</h3>
+                  <p class="panel-subtitle">Calculate installment, total interest, and amortized balance</p>
+                </div>
+                <span class="badge badge-accent">Live Formula</span>
+              </div>
+
+              <div class="calc-form">
+                <!-- Principal slider -->
+                <div class="calc-control-group">
+                  <div class="calc-label-row">
+                    <label for="calc-principal-input">Loan Principal Amount</label>
+                    <span class="calc-value-display" id="calc-principal-val">₹50,000</span>
+                  </div>
+                  <input type="range" id="calc-principal-range" min="5000" max="1000000" step="5000" value="50000" class="calc-slider">
+                  <div class="input-with-symbol">
+                    <span class="symbol">₹</span>
+                    <input type="number" id="calc-principal-input" value="50000" min="1000" max="5000000" step="1000">
+                  </div>
+                </div>
+
+                <!-- Interest Rate slider -->
+                <div class="calc-control-group">
+                  <div class="calc-label-row">
+                    <label for="calc-rate-input">Annual Interest Rate (%)</label>
+                    <span class="calc-value-display" id="calc-rate-val">12%</span>
+                  </div>
+                  <input type="range" id="calc-rate-range" min="1" max="48" step="0.5" value="12" class="calc-slider">
+                  <div class="input-with-symbol">
+                    <span class="symbol">%</span>
+                    <input type="number" id="calc-rate-input" value="12" min="0.1" max="60" step="0.5">
+                  </div>
+                </div>
+
+                <!-- Duration slider -->
+                <div class="calc-control-group">
+                  <div class="calc-label-row">
+                    <label for="calc-months-input">Tenure Duration (Months)</label>
+                    <span class="calc-value-display" id="calc-months-val">12 months</span>
+                  </div>
+                  <input type="range" id="calc-months-range" min="1" max="60" step="1" value="12" class="calc-slider">
+                  <div class="input-with-symbol">
+                    <span class="symbol">Mo</span>
+                    <input type="number" id="calc-months-input" value="12" min="1" max="120" step="1">
+                  </div>
+                </div>
+
+                <!-- Interest Calculation Type -->
+                <div class="calc-control-group">
+                  <label>Interest Calculation Method</label>
+                  <div class="calc-type-toggle">
+                    <label class="radio-chip">
+                      <input type="radio" name="calc-type" value="FLAT" checked>
+                      <span>Flat Interest (Standard)</span>
+                    </label>
+                    <label class="radio-chip">
+                      <input type="radio" name="calc-type" value="COMPOUND">
+                      <span>Reducing Balance (Compound EMI)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <button class="btn btn-primary btn-block" onclick="applyCalculatedToNewLoan()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Disburse Loan With These Terms
+                </button>
+              </div>
+            </div>
+
+            <!-- Result Cards & Summary -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">Repayment Summary</h3>
+                  <p class="panel-subtitle">Calculated monthly obligation</p>
+                </div>
+              </div>
+
+              <div class="calc-results-cards">
+                <div class="calc-stat-box highlight">
+                  <span class="calc-stat-title">Monthly Installment (EMI)</span>
+                  <span class="calc-stat-num" id="calc-res-emi">₹4,667</span>
+                  <span class="calc-stat-sub">Per Month</span>
+                </div>
+                <div class="calc-stat-box">
+                  <span class="calc-stat-title">Total Interest Charge</span>
+                  <span class="calc-stat-num" id="calc-res-interest">₹6,000</span>
+                  <span class="calc-stat-sub">Finance cost</span>
+                </div>
+                <div class="calc-stat-box">
+                  <span class="calc-stat-title">Total Repayable Amount</span>
+                  <span class="calc-stat-num" id="calc-res-total">₹56,000</span>
+                  <span class="calc-stat-sub">Principal + Interest</span>
+                </div>
+              </div>
+
+              <!-- Schedule Table -->
+              <h4 class="calc-schedule-title">Amortization Schedule (Installments)</h4>
+              <div class="table-responsive schedule-table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Installment</th>
+                      <th>Principal</th>
+                      <th>Interest</th>
+                      <th class="text-right">Remaining Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody id="calc-schedule-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= TAB 6: AUDIT & LOGS ================= -->
+        <section id="tab-audit" class="tab-pane">
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">System Audit & Compliance Logs</h3>
+                <p class="panel-subtitle">Tamper-evident record of all loans disbursed, payments collected, and receipts</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAuditLogs()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Refresh Logs
+              </button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Authorized Staff</th>
+                    <th>Description</th>
+                    <th>IP Address</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-table-body">
+                  <tr><td colspan="6" class="table-empty">Loading audit records...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Modal 1: Add Borrower Modal -->
+  <div id="modal-customer" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Register New Borrower</h2>
+          <p class="modal-subtitle">Record customer profile and KYC identification</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('modal-customer')">✕</button>
+      </div>
+      <form id="customer-form" class="modal-form">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label for="cust-fullname">Full Name *</label>
+            <input type="text" id="cust-fullname" required placeholder="e.g. Ramesh Kumar">
+          </div>
+          <div class="form-group">
+            <label for="cust-phone">Primary Phone Number *</label>
+            <input type="tel" id="cust-phone" required placeholder="e.g. 9843000000">
+          </div>
+          <div class="form-group">
+            <label for="cust-altphone">Alternate Phone</label>
+            <input type="tel" id="cust-altphone" placeholder="Optional">
+          </div>
+          <div class="form-group span-2">
+            <label for="cust-address">Residential Address *</label>
+            <input type="text" id="cust-address" required placeholder="Door No, Street, City, Pincode">
+          </div>
+          <div class="form-group">
+            <label for="cust-dob">Date of Birth *</label>
+            <input type="date" id="cust-dob" required>
+          </div>
+          <div class="form-group">
+            <label for="cust-idtype">ID Proof Document *</label>
+            <select id="cust-idtype" required>
+              <option value="Aadhaar">Aadhaar Card</option>
+              <option value="PAN">PAN Card</option>
+              <option value="Voter ID">Voter ID</option>
+              <option value="Driving License">Driving License</option>
+              <option value="Passport">Passport</option>
+            </select>
+          </div>
+          <div class="form-group span-2">
+            <label for="cust-idnumber">ID Proof Document Number *</label>
+            <input type="text" id="cust-idnumber" required placeholder="e.g. 1234 5678 9012 or ABCDE1234F">
+          </div>
+          <div class="form-group span-2">
+            <label for="cust-notes">Borrower Notes</label>
+            <textarea id="cust-notes" rows="2" placeholder="Guarantor, reference details, occupation..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-customer')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Borrower Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Disburse Loan Modal -->
+  <div id="modal-account" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Disburse New Loan</h2>
+          <p class="modal-subtitle">Generate account terms and schedule installments</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('modal-account')">✕</button>
+      </div>
+      <form id="account-form" class="modal-form">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label for="loan-customer-select">Select Borrower *</label>
+            <select id="loan-customer-select" required>
+              <option value="">Choose borrower...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="loan-principal">Principal Amount (₹) *</label>
+            <input type="number" id="loan-principal" min="1000" step="500" required placeholder="50000">
+          </div>
+          <div class="form-group">
+            <label for="loan-rate">Annual Interest Rate (%) *</label>
+            <input type="number" id="loan-rate" min="0" step="0.5" required placeholder="12">
+          </div>
+          <div class="form-group">
+            <label for="loan-duration">Duration (Months) *</label>
+            <input type="number" id="loan-duration" min="1" max="120" required placeholder="12">
+          </div>
+          <div class="form-group">
+            <label for="loan-frequency">Payment Frequency *</label>
+            <select id="loan-frequency" required>
+              <option value="MONTHLY">Monthly</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="DAILY">Daily</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="loan-type">Interest Calculation *</label>
+            <select id="loan-type" required>
+              <option value="FLAT">Flat Rate (Standard)</option>
+              <option value="COMPOUND">Reducing Balance (Compound)</option>
+              <option value="SIMPLE">Simple Interest</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="loan-start-date">Disbursal Start Date *</label>
+            <input type="date" id="loan-start-date" required>
+          </div>
+          <div class="form-group span-2">
+            <label for="loan-notes">Loan Remarks / Collateral</label>
+            <textarea id="loan-notes" rows="2" placeholder="Vehicle collateral, business expansion, personal..."></textarea>
+          </div>
+        </div>
+
+        <!-- Live Preview of Installment -->
+        <div class="loan-calc-preview" id="loan-preview-box">
+          <div class="preview-item">
+            <span>Estimated Installment:</span>
+            <strong id="preview-installment">₹0</strong>
+          </div>
+          <div class="preview-item">
+            <span>Total Payable:</span>
+            <strong id="preview-total">₹0</strong>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-account')">Cancel</button>
+          <button type="submit" class="btn btn-accent">Confirm & Disburse Loan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Collect Payment Modal -->
+  <div id="modal-payment" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Collect Payment / Installment</h2>
+          <p class="modal-subtitle">Generate instant receipt and adjust borrower balance</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('modal-payment')">✕</button>
+      </div>
+      <form id="payment-form" class="modal-form">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label for="pay-account-select">Select Loan Account *</label>
+            <select id="pay-account-select" required>
+              <option value="">Choose loan account...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pay-amount">Payment Amount (₹) *</label>
+            <input type="number" id="pay-amount" min="1" step="1" required placeholder="e.g. 5000">
+          </div>
+          <div class="form-group">
+            <label for="pay-date">Payment Date *</label>
+            <input type="date" id="pay-date" required>
+          </div>
+          <div class="form-group span-2">
+            <label for="pay-method">Payment Mode *</label>
+            <select id="pay-method" required>
+              <option value="UPI">UPI (Google Pay, PhonePe, Paytm, BHIM)</option>
+              <option value="CASH">Cash</option>
+              <option value="BANK_TRANSFER">Direct Bank Transfer / NEFT / IMPS</option>
+              <option value="CHEQUE">Cheque</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+
+          <!-- Dynamic UPI Gateway & QR Section -->
+          <div id="upi-section" class="form-group span-2 upi-gateway-card">
+            <div class="upi-header">
+              <div>
+                <strong>Instant UPI Payment & QR Code</strong>
+                <p>Borrower can scan to transfer directly to DD Enterprises</p>
+              </div>
+              <span class="badge badge-accent">ACTIVE QR</span>
+            </div>
+            <div class="upi-body">
+              <div class="upi-qr-box">
+                <div id="upi-qr-canvas-wrap"></div>
+                <span class="upi-scan-text">Scan with any UPI App</span>
+              </div>
+              <div class="upi-inputs">
+                <label for="pay-upi-app">Payment App</label>
+                <select id="pay-upi-app">
+                  <option value="GPay">Google Pay</option>
+                  <option value="PhonePe">PhonePe</option>
+                  <option value="Paytm">Paytm</option>
+                  <option value="BHIM">BHIM UPI</option>
+                  <option value="Other">Other Bank UPI</option>
+                </select>
+                <label for="pay-ref">Transaction Reference / UTR Number</label>
+                <input type="text" id="pay-ref" placeholder="12-digit UPI reference ID">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group span-2" id="general-ref-group" style="display:none;">
+            <label for="pay-gen-ref">Reference / Cheque Number</label>
+            <input type="text" id="pay-gen-ref" placeholder="Cheque number, IMPS transaction ID...">
+          </div>
+
+          <div class="form-group span-2">
+            <label for="pay-notes">Collection Remarks</label>
+            <input type="text" id="pay-notes" placeholder="Notes (e.g. collected in office, receipt handed over)">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-payment')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Record Payment & Generate Receipt</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Borrower Detail Drawer / Modal -->
+  <div id="modal-customer-details" class="modal-overlay hidden">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="cust-detail-name">Borrower Profile</h2>
+          <p class="modal-subtitle" id="cust-detail-id">CUST-0001</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('modal-customer-details')">✕</button>
+      </div>
+      <div class="modal-body" id="cust-detail-content">
+        <!-- Injected via JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-customer-details')">Close</button>
+        <button type="button" class="btn btn-accent" id="cust-detail-newloan-btn">Issue New Loan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Loan Account Statement & Amortization -->
+  <div id="modal-account-details" class="modal-overlay hidden">
+    <div class="modal-box modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="loan-detail-title">Loan Account Statement</h2>
+          <p class="modal-subtitle" id="loan-detail-subtitle">LOAN-2001</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('modal-account-details')">✕</button>
+      </div>
+      <div class="modal-body" id="loan-detail-content">
+        <!-- Injected via JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-account-details')">Close</button>
+        <button type="button" class="btn btn-primary" id="loan-detail-pay-btn">Collect Installment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 6: Official Printable Payment Receipt -->
+  <div id="modal-receipt" class="modal-overlay hidden">
+    <div class="modal-box modal-receipt-box">
+      <div class="modal-header no-print">
+        <div>
+          <h2 class="modal-title">Payment Receipt</h2>
+          <p class="modal-subtitle">Official payment confirmation</p>
+        </div>
+        <div class="receipt-header-actions">
+          <button class="btn btn-primary btn-sm" onclick="window.print()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Print / Save PDF
+          </button>
+          <button class="modal-close-btn" onclick="closeModal('modal-receipt')">✕</button>
+        </div>
+      </div>
+
+      <!-- Printable Document -->
+      <div class="printable-receipt" id="printable-receipt-content">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Core JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>

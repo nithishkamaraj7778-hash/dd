@@ -1,0 +1,17 @@
+{
+  "name": "dd-enterprises",
+  "version": "1.0.0",
+  "description": "DD Enterprises Finance Management Platform",
+  "scripts": {
+    "start": "node backend/dist/index.js",
+    "dev": "npm run dev --prefix backend",
+    "build": "npm run build --prefix frontend && npm run build --prefix backend",
+    "prisma:generate": "npm run prisma:generate --prefix backend"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  }
+}

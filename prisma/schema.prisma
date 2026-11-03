@@ -1,0 +1,165 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../backend/node_modules/.prisma/client"
+}
+
+model User {
+  id           String     @id @default(uuid())
+  username     String     @unique
+  passwordHash String
+  fullName     String
+  role         String     // "SUPERADMIN" | "ADMIN" | "MANAGER" | "EMPLOYEE"
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  
+  // Relations
+  paymentsCreated  Payment[]   @relation("PaymentsCreatedBy")
+  paymentsReversed Payment[]   @relation("PaymentsReversedBy")
+  auditLogs        AuditLog[]
+  customersCreated Customer[]  @relation("CustomersCreatedBy")
+  accountsCreated  Account[]   @relation("AccountsCreatedBy")
+}
+
+model Customer {
+  id           String     @id @default(uuid())
+  customerId   String     @unique // Business-specific ID (e.g. CUST-1001)
+  fullName     String
+  phone        String
+  altPhone     String?
+  address      String
+  dob          DateTime
+  idType       String     // e.g. "Aadhaar", "PAN", "Passport"
+  idNumber     String
+  photoUrl     String?
+  notes        String?
+  status       String     @default("ACTIVE") // "ACTIVE" | "ARCHIVED"
+  createdById  String?    // Admin who created this customer
+  createdBy    User?      @relation("CustomersCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  accounts     Account[]
+  payments     Payment[]
+  documents    Document[]
+}
+
+model Account {
+  id                 String     @id @default(uuid())
+  accountNumber      String     @unique // Loan Account Number (e.g. LOAN-2001)
+  customerId         String
+  customer           Customer   @relation(fields: [customerId], references: [id])
+  
+  principalAmount    Float
+  interestRate       Float      // Annual / Monthly Rate in %
+  interestType       String     // "SIMPLE" | "COMPOUND" | "FLAT"
+  
+  startDate          DateTime
+  endDate            DateTime
+  durationMonths     Int
+  paymentFrequency   String     // "DAILY" | "WEEKLY" | "MONTHLY"
+  installmentAmount  Float
+  totalPayable       Float
+  
+  amountPaid         Float      @default(0.0)
+  outstandingBalance Float
+  status             String     @default("ACTIVE") // "ACTIVE" | "DUE_SOON" | "OVERDUE" | "COMPLETED" | "CLOSED"
+  notes              String?
+  nextDueDate        DateTime?
+  overdueAmount      Float      @default(0.0)
+  createdById        String?    // Admin who created this account
+  createdBy          User?      @relation("AccountsCreatedBy", fields: [createdById], references: [id])
+  
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  // Relations
+  payments           Payment[]
+}
+
+model Payment {
+  id              String     @id @default(uuid())
+  receiptNumber   String     @unique // Receipt identifier (e.g. REC-5001)
+  customerId      String
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  accountId       String
+  account         Account    @relation(fields: [accountId], references: [id])
+  
+  amount          Float
+  paymentDate     DateTime
+  paymentMethod   String     // "CASH" | "UPI" | "BANK_TRANSFER" | "CHEQUE" | "OTHER"
+  referenceNumber String?
+  notes           String?
+  
+  createdById     String
+  createdBy       User       @relation("PaymentsCreatedBy", fields: [createdById], references: [id])
+  
+  isReversed      Boolean    @default(false)
+  reversedAt      DateTime?
+  reversedById    String?
+  reversedBy      User?      @relation("PaymentsReversedBy", fields: [reversedById], references: [id])
+  reversalReason  String?
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  receipt         Receipt?
+}
+
+model Receipt {
+  id            String     @id @default(uuid())
+  receiptNumber String     @unique
+  paymentId     String     @unique
+  payment       Payment    @relation(fields: [paymentId], references: [id])
+  pdfPath       String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Notification {
+  id        String     @id @default(uuid())
+  title     String
+  message   String
+  status    String     @default("UNREAD") // "UNREAD" | "READ"
+  type      String     // "DUE" | "OVERDUE" | "SYSTEM"
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model AuditLog {
+  id          String     @id @default(uuid())
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id])
+  action      String     // e.g. "CUSTOMER_CREATE", "PAYMENT_RECORD"
+  entity      String     // e.g. "Customer", "Payment"
+  entityId    String?
+  ipAddress   String?
+  description String
+  timestamp   DateTime   @default(now())
+}
+
+model Document {
+  id         String     @id @default(uuid())
+  customerId String
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  name       String     // KYC Name (e.g. Aadhaar Front)
+  fileUrl    String
+  fileType   String     // e.g. "image/jpeg", "application/pdf"
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
