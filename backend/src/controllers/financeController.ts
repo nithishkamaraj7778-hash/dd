@@ -1,31 +1,49 @@
 import { Request, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
-import { AuthenticatedRequest } from '../middleware/auth';
-import { isSuperAdmin } from '../middleware/auth';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import { AuthenticatedRequest, isSuperAdmin } from '../middleware/auth';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
 
 const idFor = (prefix: string, count: number) => `${prefix}-${String(count + 1).padStart(4, '0')}`;
 
-/** Returns the effective owner filter for a request.
- * - SUPERADMIN with ?adminId=XYZ → filter by that admin's ID
- * - SUPERADMIN with no ?adminId  → no filter (sees everything)
- * - Other roles                   → filter by their own ID
- */
-function getOwnerFilter(req: AuthenticatedRequest): string | null {
-  if (!req.user) return null;
+function getCustomerScope(req: AuthenticatedRequest): Prisma.CustomerWhereInput {
+  if (!req.user) throw new ForbiddenError('Authentication required');
   if (isSuperAdmin(req.user)) {
-    const adminId = typeof req.query.adminId === 'string' ? req.query.adminId.trim() : '';
-    return adminId || null; // null = no filter for super admin
+    const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId.trim() : '';
+    return employeeId ? { assignedEmployeeId: employeeId } : {};
   }
-  return req.user.id;
+  if (!req.user.employeeId) throw new ForbiddenError('Employee workspace is not configured');
+  return { assignedEmployeeId: req.user.employeeId };
+}
+
+function getAccountScope(req: AuthenticatedRequest): Prisma.AccountWhereInput {
+  return { customer: { is: getCustomerScope(req) } };
+}
+
+function getPaymentScope(req: AuthenticatedRequest): Prisma.PaymentWhereInput {
+  if (!req.user) throw new ForbiddenError('Authentication required');
+  if (!isSuperAdmin(req.user)) {
+    return {
+      createdById: req.user.id,
+      customer: { is: getCustomerScope(req) },
+    };
+  }
+  return { customer: { is: getCustomerScope(req) } };
 }
 
 export class FinanceController {
   public static async dashboard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const ownerFilter = getOwnerFilter(req);
-      const ownerWhere = ownerFilter ? { createdById: ownerFilter } : {};
-      const paymentOwnerWhere = ownerFilter ? { createdById: ownerFilter } : {};
+      const customerScope = getCustomerScope(req);
+      const accountScope = getAccountScope(req);
+      const paymentScope = getPaymentScope(req);
+      const employeeId = isSuperAdmin(req.user!)
+        ? (typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined)
+        : req.user!.id;
+      const monthRangeStart = new Date();
+      monthRangeStart.setDate(1);
+      monthRangeStart.setHours(0, 0, 0, 0);
+      monthRangeStart.setMonth(monthRangeStart.getMonth() - 5);
 
       const [
         customers,
@@ -33,23 +51,29 @@ export class FinanceController {
         payments,
         accountTotals,
         paymentTotals,
+        paymentMethods,
         recentPayments,
-        allPayments,
+        monthlyPayments,
         recentLogs
       ] = await Promise.all([
-        prisma.customer.count({ where: { status: 'ACTIVE', ...ownerWhere } }),
-        prisma.account.count({ where: { status: { not: 'CLOSED' }, ...ownerWhere } }),
-        prisma.payment.count({ where: { isReversed: false, ...paymentOwnerWhere } }),
+        prisma.customer.count({ where: { status: 'ACTIVE', ...customerScope } }),
+        prisma.account.count({ where: { status: { not: 'CLOSED' }, ...accountScope } }),
+        prisma.payment.count({ where: { isReversed: false, ...paymentScope } }),
         prisma.account.aggregate({
-          where: ownerWhere,
+          where: accountScope,
           _sum: { principalAmount: true, outstandingBalance: true, amountPaid: true, totalPayable: true },
         }),
         prisma.payment.aggregate({
-          where: { isReversed: false, ...paymentOwnerWhere },
+          where: { isReversed: false, ...paymentScope },
+          _sum: { amount: true },
+        }),
+        prisma.payment.groupBy({
+          by: ['paymentMethod'],
+          where: { isReversed: false, ...paymentScope },
           _sum: { amount: true },
         }),
         prisma.payment.findMany({
-          where: { isReversed: false, ...paymentOwnerWhere },
+          where: { isReversed: false, ...paymentScope },
           orderBy: { paymentDate: 'desc' },
           take: 8,
           include: {
@@ -58,12 +82,11 @@ export class FinanceController {
           },
         }),
         prisma.payment.findMany({
-          where: { isReversed: false, ...paymentOwnerWhere },
+          where: { isReversed: false, paymentDate: { gte: monthRangeStart }, ...paymentScope },
           select: { amount: true, paymentDate: true, paymentMethod: true },
-          take: 100,
         }),
         prisma.auditLog.findMany({
-          where: ownerFilter ? { userId: ownerFilter } : {},
+          where: employeeId ? { userId: employeeId } : {},
           take: 8,
           orderBy: { timestamp: 'desc' },
           include: { user: { select: { fullName: true, username: true } } },
@@ -75,11 +98,11 @@ export class FinanceController {
       const recovered = paymentTotals._sum.amount ?? (accountTotals._sum.amountPaid ?? 0);
 
       // Method distribution
-      const methodCounts: Record<string, number> = { UPI: 0, CASH: 0, BANK_TRANSFER: 0, OTHER: 0 };
-      allPayments.forEach((p) => {
-        const m = p.paymentMethod.toUpperCase();
-        if (m in methodCounts) methodCounts[m] += p.amount;
-        else methodCounts.OTHER += p.amount;
+      const methodCounts: Record<string, number> = { UPI: 0, CASH: 0, BANK_TRANSFER: 0, CHEQUE: 0, OTHER: 0 };
+      paymentMethods.forEach((paymentMethod) => {
+        const method = paymentMethod.paymentMethod.toUpperCase();
+        if (method in methodCounts) methodCounts[method] += paymentMethod._sum.amount ?? 0;
+        else methodCounts.OTHER += paymentMethod._sum.amount ?? 0;
       });
 
       // Monthly aggregation for last 6 months
@@ -90,7 +113,7 @@ export class FinanceController {
         const label = d.toLocaleString('en-US', { month: 'short' });
         monthsMap[label] = 0;
       }
-      allPayments.forEach((p) => {
+      monthlyPayments.forEach((p) => {
         const d = new Date(p.paymentDate);
         const label = d.toLocaleString('en-US', { month: 'short' });
         if (label in monthsMap) {
@@ -124,9 +147,7 @@ export class FinanceController {
     try {
       const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
       const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
-      const ownerFilter = getOwnerFilter(req);
-
-      const whereClause: any = ownerFilter ? { createdById: ownerFilter } : {};
+      const whereClause: Prisma.CustomerWhereInput = getCustomerScope(req);
       if (search) {
         whereClause.OR = [
           { fullName: { contains: search } },
@@ -156,11 +177,11 @@ export class FinanceController {
     }
   }
 
-  public static async getCustomerDetails(req: Request, res: Response, next: NextFunction) {
+  public static async getCustomerDetails(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const customer = await prisma.customer.findUnique({
-        where: { id },
+      const customer = await prisma.customer.findFirst({
+        where: { id, ...getCustomerScope(req) },
         include: {
           accounts: {
             orderBy: { createdAt: 'desc' },
@@ -169,7 +190,10 @@ export class FinanceController {
             },
           },
           payments: {
-            where: { isReversed: false },
+            where: {
+              isReversed: false,
+              ...(isSuperAdmin(req.user!) ? {} : { createdById: req.user!.id }),
+            },
             orderBy: { paymentDate: 'desc' },
             take: 15,
             include: { account: { select: { accountNumber: true } } },
@@ -200,29 +224,114 @@ export class FinanceController {
     }
   }
 
+  public static async assignCustomer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { employeeId } = req.body as { employeeId: string | null };
+      const customer = await prisma.$transaction(async (tx) => {
+        if (employeeId) {
+          const employee = await tx.employee.findFirst({
+            where: { id: employeeId, archivedAt: null, user: { isActive: true } },
+          });
+          if (!employee) throw new BadRequestError('Choose an active employee');
+        }
+
+        const updated = await tx.customer.update({
+          where: { id },
+          data: { assignedEmployeeId: employeeId },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.id,
+            action: 'CUSTOMER_ASSIGN',
+            entity: 'Customer',
+            entityId: updated.id,
+            ipAddress: req.ip,
+            description: employeeId
+              ? `Assigned customer ${updated.customerId} to employee ${employeeId}`
+              : `Unassigned customer ${updated.customerId}`,
+          },
+        });
+        return updated;
+      });
+      return res.json({ status: 'success', data: customer });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  public static async updateCustomer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const customer = await prisma.$transaction(async (tx) => {
+        const updatedCount = await tx.customer.updateMany({
+          where: { id, ...getCustomerScope(req) },
+          data: {
+            ...req.body,
+            ...(req.body.dob ? { dob: new Date(req.body.dob) } : {}),
+          },
+        });
+        if (updatedCount.count === 0) throw new NotFoundError('Customer not found');
+        const updated = await tx.customer.findUniqueOrThrow({ where: { id } });
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.id,
+            action: 'CUSTOMER_UPDATE',
+            entity: 'Customer',
+            entityId: updated.id,
+            ipAddress: req.ip,
+            description: `Updated borrower profile ${updated.customerId}`,
+          },
+        });
+        return updated;
+      });
+      return res.json({ status: 'success', data: customer });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   public static async createCustomer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const count = await prisma.customer.count();
-      const customerId = idFor('CUST', count);
-      const customer = await prisma.customer.create({
-        data: {
-          ...req.body,
-          customerId,
-          dob: new Date(req.body.dob),
-          createdById: req.user?.id ?? null,
-        },
-      });
+      if (!isSuperAdmin(req.user!) && 'assignedEmployeeId' in req.body) {
+        throw new BadRequestError('Only the employer can assign customers');
+      }
+      const requestedAssignee = typeof req.body.assignedEmployeeId === 'string'
+        ? req.body.assignedEmployeeId
+        : undefined;
+      const assignedEmployeeId = isSuperAdmin(req.user!)
+        ? requestedAssignee ?? null
+        : req.user!.employeeId;
+      const customer = await prisma.$transaction(async (tx) => {
+        if (requestedAssignee && isSuperAdmin(req.user!)) {
+          const assignee = await tx.employee.findFirst({
+            where: { id: requestedAssignee, archivedAt: null, user: { isActive: true } },
+          });
+          if (!assignee) throw new BadRequestError('Choose an active employee');
+        }
 
-      await prisma.auditLog.create({
-        data: {
-          userId: req.user?.id,
-          action: 'CUSTOMER_CREATE',
-          entity: 'Customer',
-          entityId: customer.id,
-          ipAddress: req.ip,
-          description: `Created borrower profile: ${customer.fullName} (${customer.customerId})`,
-        },
-      }).catch(() => null);
+        const count = await tx.customer.count();
+        const created = await tx.customer.create({
+          data: {
+            ...req.body,
+            customerId: idFor('CUST', count),
+            dob: new Date(req.body.dob),
+            createdById: req.user!.id,
+            assignedEmployeeId,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.id,
+            action: 'CUSTOMER_CREATE',
+            entity: 'Customer',
+            entityId: created.id,
+            ipAddress: req.ip,
+            description: `Created borrower profile: ${created.fullName} (${created.customerId})`,
+          },
+        });
+        return created;
+      });
 
       return res.status(201).json({ status: 'success', data: customer });
     } catch (error) {
@@ -234,9 +343,7 @@ export class FinanceController {
     try {
       const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
       const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
-      const ownerFilter = getOwnerFilter(req);
-
-      const whereClause: any = ownerFilter ? { createdById: ownerFilter } : {};
+      const whereClause: Prisma.AccountWhereInput = getAccountScope(req);
       if (search) {
         whereClause.OR = [
           { accountNumber: { contains: search } },
@@ -266,15 +373,18 @@ export class FinanceController {
     }
   }
 
-  public static async getAccountDetails(req: Request, res: Response, next: NextFunction) {
+  public static async getAccountDetails(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const account = await prisma.account.findUnique({
-        where: { id },
+      const account = await prisma.account.findFirst({
+        where: { id, ...getAccountScope(req) },
         include: {
           customer: true,
           payments: {
-            where: { isReversed: false },
+            where: {
+              isReversed: false,
+              ...(isSuperAdmin(req.user!) ? {} : { createdById: req.user!.id }),
+            },
             orderBy: { paymentDate: 'desc' },
           },
         },
@@ -329,9 +439,6 @@ export class FinanceController {
         notes,
       } = req.body;
 
-      const customer = await prisma.customer.findUnique({ where: { id: customerId } });
-      if (!customer) throw new NotFoundError('Customer not found');
-
       const totalInterest =
         interestType === 'COMPOUND'
           ? principalAmount * (Math.pow(1 + interestRate / 100 / 12, durationMonths) - 1)
@@ -346,7 +453,6 @@ export class FinanceController {
           : durationMonths;
       const installmentAmount = totalPayable / installmentCount;
 
-      const count = await prisma.account.count();
       const start = new Date(startDate);
       const end = new Date(start);
       end.setMonth(end.getMonth() + durationMonths);
@@ -356,38 +462,46 @@ export class FinanceController {
       else if (paymentFrequency === 'WEEKLY') nextDue.setDate(nextDue.getDate() + 7);
       else nextDue.setMonth(nextDue.getMonth() + 1);
 
-      const accountNumber = idFor('LOAN', count + 2000);
-      const account = await prisma.account.create({
-        data: {
-          accountNumber,
-          customerId,
-          principalAmount,
-          interestRate,
-          interestType,
-          startDate: start,
-          endDate: end,
-          durationMonths,
-          paymentFrequency,
-          installmentAmount,
-          totalPayable,
-          outstandingBalance: totalPayable,
-          nextDueDate: nextDue,
-          notes,
-          createdById: req.user?.id ?? null,
-        },
-        include: { customer: true },
-      });
+      const account = await prisma.$transaction(async (tx) => {
+        const customer = await tx.customer.findFirst({
+          where: { id: customerId, ...getCustomerScope(req) },
+        });
+        if (!customer) throw new NotFoundError('Customer not found');
 
-      await prisma.auditLog.create({
-        data: {
-          userId: req.user?.id,
-          action: 'ACCOUNT_CREATE',
-          entity: 'Account',
-          entityId: account.id,
-          ipAddress: req.ip,
-          description: `Disbursed loan ${account.accountNumber} of ₹${account.principalAmount} for ${customer.fullName}`,
-        },
-      }).catch(() => null);
+        const count = await tx.account.count();
+        const created = await tx.account.create({
+          data: {
+            accountNumber: idFor('LOAN', count + 2000),
+            customerId,
+            principalAmount,
+            interestRate,
+            interestType,
+            startDate: start,
+            endDate: end,
+            durationMonths,
+            paymentFrequency,
+            installmentAmount,
+            totalPayable,
+            outstandingBalance: totalPayable,
+            nextDueDate: nextDue,
+            notes,
+            createdById: req.user!.id,
+          },
+          include: { customer: true },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.id,
+            action: 'ACCOUNT_CREATE',
+            entity: 'Account',
+            entityId: created.id,
+            ipAddress: req.ip,
+            description: `Disbursed loan ${created.accountNumber} of ₹${created.principalAmount} for ${customer.fullName}`,
+          },
+        });
+        return created;
+      });
 
       return res.status(201).json({ status: 'success', data: account });
     } catch (error) {
@@ -399,9 +513,10 @@ export class FinanceController {
     try {
       const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
       const accountId = typeof req.query.accountId === 'string' ? req.query.accountId.trim() : '';
-      const ownerFilter = getOwnerFilter(req);
-
-      const whereClause: any = { isReversed: false, ...(ownerFilter ? { createdById: ownerFilter } : {}) };
+      const whereClause: Prisma.PaymentWhereInput = {
+        isReversed: false,
+        ...getPaymentScope(req),
+      };
       if (accountId) {
         whereClause.accountId = accountId;
       }
@@ -434,20 +549,42 @@ export class FinanceController {
   public static async createPayment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { accountId, amount, paymentDate, paymentMethod, referenceNumber, notes } = req.body;
-      const account = await prisma.account.findUnique({
-        where: { id: accountId },
-        include: { customer: true },
-      });
-      if (!account) throw new NotFoundError('Account not found');
-      if (amount <= 0) throw new BadRequestError('Payment amount must be greater than zero');
-      if (amount > account.outstandingBalance) {
-        throw new BadRequestError(`Payment of ₹${amount} exceeds outstanding balance of ₹${Math.round(account.outstandingBalance)}`);
-      }
-
-      const receiptCount = await prisma.payment.count();
-      const receiptNumber = idFor('REC', receiptCount + 5000);
-
       const payment = await prisma.$transaction(async (transaction) => {
+        const account = await transaction.account.findFirst({
+          where: { id: accountId, ...getAccountScope(req) },
+          include: { customer: true },
+        });
+        if (!account) throw new NotFoundError('Account not found');
+        if (amount > account.outstandingBalance) {
+          throw new BadRequestError(`Payment of ₹${amount} exceeds outstanding balance of ₹${Math.round(account.outstandingBalance)}`);
+        }
+
+        const newOutstanding = Math.max(0, account.outstandingBalance - amount);
+        const newStatus = newOutstanding <= 0.01 ? 'COMPLETED' : 'ACTIVE';
+
+        let nextDue = account.nextDueDate ? new Date(account.nextDueDate) : new Date();
+        if (account.paymentFrequency === 'DAILY') nextDue.setDate(nextDue.getDate() + 1);
+        else if (account.paymentFrequency === 'WEEKLY') nextDue.setDate(nextDue.getDate() + 7);
+        else nextDue.setMonth(nextDue.getMonth() + 1);
+
+        const balanceUpdate = await transaction.account.updateMany({
+          where: {
+            id: accountId,
+            ...getAccountScope(req),
+            outstandingBalance: { gte: amount },
+          },
+          data: {
+            amountPaid: { increment: amount },
+            outstandingBalance: newOutstanding,
+            status: newStatus,
+            nextDueDate: newStatus === 'COMPLETED' ? null : nextDue,
+          },
+        });
+        if (balanceUpdate.count === 0) {
+          throw new BadRequestError('The account balance changed or the account is no longer accessible.');
+        }
+
+        const receiptNumber = idFor('REC', await transaction.payment.count() + 5000);
         const created = await transaction.payment.create({
           data: {
             receiptNumber,
@@ -464,38 +601,18 @@ export class FinanceController {
           include: { customer: true, account: true, receipt: true },
         });
 
-        const newOutstanding = Math.max(0, account.outstandingBalance - amount);
-        const newStatus = newOutstanding <= 0.01 ? 'COMPLETED' : 'ACTIVE';
-
-        // Calculate next due date
-        let nextDue = account.nextDueDate ? new Date(account.nextDueDate) : new Date();
-        if (account.paymentFrequency === 'DAILY') nextDue.setDate(nextDue.getDate() + 1);
-        else if (account.paymentFrequency === 'WEEKLY') nextDue.setDate(nextDue.getDate() + 7);
-        else nextDue.setMonth(nextDue.getMonth() + 1);
-
-        await transaction.account.update({
-          where: { id: accountId },
+        await transaction.auditLog.create({
           data: {
-            amountPaid: { increment: amount },
-            outstandingBalance: newOutstanding,
-            status: newStatus,
-            nextDueDate: newStatus === 'COMPLETED' ? null : nextDue,
+            userId: req.user!.id,
+            action: 'PAYMENT_COLLECT',
+            entity: 'Payment',
+            entityId: created.id,
+            ipAddress: req.ip,
+            description: `Collected ₹${amount} via ${paymentMethod} (Receipt: ${receiptNumber}) for Account ${account.accountNumber} (${account.customer.fullName})`,
           },
         });
-
         return created;
       });
-
-      await prisma.auditLog.create({
-        data: {
-          userId: req.user?.id,
-          action: 'PAYMENT_COLLECT',
-          entity: 'Payment',
-          entityId: payment.id,
-          ipAddress: req.ip,
-          description: `Collected ₹${amount} via ${paymentMethod} (Receipt: ${receiptNumber}) for Account ${account.accountNumber} (${account.customer.fullName})`,
-        },
-      }).catch(() => null);
 
       return res.status(201).json({ status: 'success', data: payment });
     } catch (error) {
@@ -508,17 +625,16 @@ export class FinanceController {
       const { id } = req.params;
       const { reason } = req.body;
 
-      const payment = await prisma.payment.findUnique({
-        where: { id },
-        include: { account: true, customer: true },
-      });
-
-      if (!payment) throw new NotFoundError('Payment not found');
-      if (payment.isReversed) throw new BadRequestError('Payment is already reversed');
-
       const updated = await prisma.$transaction(async (tx) => {
-        const reversed = await tx.payment.update({
-          where: { id },
+        const payment = await tx.payment.findFirst({
+          where: { id, ...getPaymentScope(req) },
+          include: { account: true },
+        });
+        if (!payment) throw new NotFoundError('Payment not found');
+        if (payment.isReversed) throw new BadRequestError('Payment is already reversed');
+
+        const reversal = await tx.payment.updateMany({
+          where: { id, isReversed: false, ...getPaymentScope(req) },
           data: {
             isReversed: true,
             reversedAt: new Date(),
@@ -526,6 +642,7 @@ export class FinanceController {
             reversalReason: reason || 'Reversed by authorized admin',
           },
         });
+        if (reversal.count === 0) throw new NotFoundError('Payment not found');
 
         await tx.account.update({
           where: { id: payment.accountId },
@@ -536,19 +653,19 @@ export class FinanceController {
           },
         });
 
+        const reversed = await tx.payment.findUniqueOrThrow({ where: { id } });
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.id,
+            action: 'PAYMENT_REVERSE',
+            entity: 'Payment',
+            entityId: payment.id,
+            ipAddress: req.ip,
+            description: `Reversed receipt ${payment.receiptNumber} of ₹${payment.amount} for Account ${payment.account.accountNumber}. Reason: ${reason || 'N/A'}`,
+          },
+        });
         return reversed;
       });
-
-      await prisma.auditLog.create({
-        data: {
-          userId: req.user?.id,
-          action: 'PAYMENT_REVERSE',
-          entity: 'Payment',
-          entityId: payment.id,
-          ipAddress: req.ip,
-          description: `Reversed receipt ${payment.receiptNumber} of ₹${payment.amount} for Account ${payment.account.accountNumber}. Reason: ${reason || 'N/A'}`,
-        },
-      }).catch(() => null);
 
       return res.json({ status: 'success', data: updated });
     } catch (error) {
@@ -556,9 +673,13 @@ export class FinanceController {
     }
   }
 
-  public static async listAuditLogs(req: Request, res: Response, next: NextFunction) {
+  public static async listAuditLogs(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
+      const employeeId = isSuperAdmin(req.user!)
+        ? (typeof req.query.employeeId === 'string' ? req.query.employeeId.trim() : '')
+        : req.user!.id;
       const logs = await prisma.auditLog.findMany({
+        where: employeeId ? { userId: employeeId } : undefined,
         take: 50,
         orderBy: { timestamp: 'desc' },
         include: {
@@ -630,12 +751,13 @@ export class FinanceController {
     }
   }
 
-  public static async exportData(req: Request, res: Response, next: NextFunction) {
+  public static async exportData(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { type } = req.params;
 
       if (type === 'customers') {
         const customers = await prisma.customer.findMany({
+          where: getCustomerScope(req),
           include: { _count: { select: { accounts: true } } },
         });
         const csvHeader = 'Customer ID,Full Name,Phone,Address,ID Type,ID Number,Status,Accounts Count,Created At\n';
@@ -651,6 +773,7 @@ export class FinanceController {
 
       if (type === 'accounts') {
         const accounts = await prisma.account.findMany({
+          where: getAccountScope(req),
           include: { customer: { select: { fullName: true, customerId: true } } },
         });
         const csvHeader = 'Account Number,Customer ID,Customer Name,Principal Amount,Interest Rate %,Duration Months,Installment Amount,Total Payable,Amount Paid,Outstanding Balance,Status,Start Date\n';
@@ -666,7 +789,7 @@ export class FinanceController {
 
       if (type === 'payments') {
         const payments = await prisma.payment.findMany({
-          where: { isReversed: false },
+          where: { isReversed: false, ...getPaymentScope(req) },
           include: {
             customer: { select: { fullName: true } },
             account: { select: { accountNumber: true } },
